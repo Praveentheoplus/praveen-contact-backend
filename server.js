@@ -1,40 +1,46 @@
 const express = require('express');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const cors = require('cors');
 require('dotenv').config();
-
+ 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
+ 
 /* ── MIDDLEWARE ── */
 app.use(express.json());
 app.use(cors({
   origin: '*',
   methods: ['POST', 'GET'],
 }));
-
-/* ── RESEND CLIENT ── */
-const resend = new Resend(process.env.RESEND_API_KEY);
-
+ 
+/* ── NODEMAILER TRANSPORTER ── */
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASS,
+  },
+});
+ 
 /* ── HEALTH CHECK ── */
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Praveen contact backend is running.' });
 });
-
+ 
 /* ── CONTACT ROUTE ── */
 app.post('/contact', async (req, res) => {
   const { name, email, reason, message } = req.body;
-
+ 
   // Basic validation
   if (!name || !email || !message) {
     return res.status(400).json({ success: false, error: 'Name, email and message are required.' });
   }
-
+ 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     return res.status(400).json({ success: false, error: 'Invalid email address.' });
   }
-
+ 
   /* ── EMAIL TO PRAVEEN (notification) ── */
   const toOwnerHtml = `
     <!DOCTYPE html>
@@ -82,7 +88,7 @@ app.post('/contact', async (req, res) => {
               <div class="label">Message</div>
               <div class="value message-value">${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
             </div>
-            <a class="reply-btn" href="mailto:${email}?subject=Re: ${encodeURIComponent(reason || 'Your message')}&amp;body=Hi ${encodeURIComponent(name)},%0D%0A%0D%0A">Reply to ${name} →</a>
+            <a class="reply-btn" href="mailto:${email}?subject=Re: ${encodeURIComponent(reason || 'Your message')}&body=Hi ${encodeURIComponent(name)},">Reply to ${name} →</a>
           </div>
           <div class="footer">
             <p>This email was sent from your portfolio contact form.</p>
@@ -92,7 +98,7 @@ app.post('/contact', async (req, res) => {
     </body>
     </html>
   `;
-
+ 
   /* ── CONFIRMATION EMAIL TO SENDER ── */
   const toSenderHtml = `
     <!DOCTYPE html>
@@ -142,25 +148,25 @@ app.post('/contact', async (req, res) => {
     </body>
     </html>
   `;
-
+ 
   try {
     // Send both emails in parallel
     await Promise.all([
-      resend.emails.send({
-        from: 'Portfolio Contact <onboarding@resend.dev>',
+      transporter.sendMail({
+        from: `"Portfolio Contact" <${process.env.GMAIL_USER}>`,
         to: process.env.GMAIL_USER,
         replyTo: email,
         subject: `📬 New message from ${name} — ${reason || 'General Inquiry'}`,
         html: toOwnerHtml,
       }),
-      resend.emails.send({
-        from: 'Portfolio Contact <onboarding@resend.dev>',
+      transporter.sendMail({
+        from: `"Praveen T" <${process.env.GMAIL_USER}>`,
         to: email,
         subject: `Thanks for reaching out, ${name}! 👋`,
         html: toSenderHtml,
       }),
     ]);
-
+ 
     return res.status(200).json({
       success: true,
       message: `Message sent! A confirmation has been sent to ${email}.`,
@@ -173,7 +179,7 @@ app.post('/contact', async (req, res) => {
     });
   }
 });
-
+ 
 /* ── START SERVER ── */
 app.listen(PORT, () => {
   console.log(`✦ Contact backend running on port ${PORT}`);
